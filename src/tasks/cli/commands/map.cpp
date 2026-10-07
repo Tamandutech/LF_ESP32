@@ -18,60 +18,47 @@ namespace cli_map {
 
 namespace {
 const char *TAG = "cli_map";
-
-MapPoint::PointType pointTypeFromInt(int value) {
-  switch(value) {
-  case MapPoint::AUTO_MARK:
-  case MapPoint::MANUAL_MARK:
-  case MapPoint::STOP_COMMAND_MARK:
-  case MapPoint::UNKNOWN_MARK:
-  case MapPoint::CURVE_START_MARK:
-  case MapPoint::CURVE_END_MARK: return static_cast<MapPoint::PointType>(value);
-  default: return MapPoint::UNKNOWN_MARK;
-  }
-}
 } // namespace
 
-bool parseMapAddBodyFields(const wire::WireView &view, int32_t *encoderLeft,
-                           int32_t *encoderRight, float *encoderDerivative,
-                           float *encoderDerivativeAverage, float *speed,
-                           MapPoint::PointType *pointType) {
-  if(view.payloadArgc() < 6 || encoderLeft == nullptr ||
-     encoderRight == nullptr || encoderDerivative == nullptr ||
-     encoderDerivativeAverage == nullptr || speed == nullptr ||
-     pointType == nullptr) {
+// Campos do ponto, na ordem do protocolo (map_add e map_get):
+// t, encoder_left, encoder_right, v, omega, x, y, theta, sector, right_marks,
+// speed
+bool parseMapAddBodyFields(const wire::WireView &view, MapPoint *point) {
+  if(view.payloadArgc() < 11 || point == nullptr) {
     return false;
   }
-  int left  = 0;
-  int right = 0;
-  int type  = 0;
-  if(!wire::parseInt(view.arg(0), left) ||
-     !wire::parseInt(view.arg(1), right) ||
-     !wire::parseFloat(view.arg(2), *encoderDerivative) ||
-     !wire::parseFloat(view.arg(3), *encoderDerivativeAverage) ||
-     !wire::parseFloat(view.arg(4), *speed) ||
-     !wire::parseInt(view.arg(5), type)) {
+  int t          = 0;
+  int left       = 0;
+  int right      = 0;
+  int sector     = 0;
+  int rightMarks = 0;
+  if(!wire::parseInt(view.arg(0), t) || !wire::parseInt(view.arg(1), left) ||
+     !wire::parseInt(view.arg(2), right) ||
+     !wire::parseFloat(view.arg(3), point->v) ||
+     !wire::parseFloat(view.arg(4), point->omega) ||
+     !wire::parseFloat(view.arg(5), point->x) ||
+     !wire::parseFloat(view.arg(6), point->y) ||
+     !wire::parseFloat(view.arg(7), point->theta) ||
+     !wire::parseInt(view.arg(8), sector) ||
+     !wire::parseInt(view.arg(9), rightMarks) ||
+     !wire::parseFloat(view.arg(10), point->speed)) {
     return false;
   }
-  *encoderLeft  = static_cast<int32_t>(left);
-  *encoderRight = static_cast<int32_t>(right);
-  *pointType    = pointTypeFromInt(type);
+  point->t            = static_cast<uint32_t>(t);
+  point->encoderLeft  = static_cast<int32_t>(left);
+  point->encoderRight = static_cast<int32_t>(right);
+  point->sector       = static_cast<uint16_t>(sector);
+  point->rightMarks   = static_cast<uint8_t>(rightMarks);
   return true;
 }
 
 bool wireMapAddBody(const wire::WireView &view, CliProtocol &proto,
                     bool sortAfter) {
-  int32_t             encoderLeft               = 0;
-  int32_t             encoderRight              = 0;
-  float               encoderDerivative         = 0.0F;
-  float               encoderDerivativeAverage  = 0.0F;
-  float               speed                     = 0.0F;
-  MapPoint::PointType pointType                 = MapPoint::MANUAL_MARK;
-  if(!parseMapAddBodyFields(view, &encoderLeft, &encoderRight,
-                            &encoderDerivative, &encoderDerivativeAverage,
-                            &speed, &pointType)) {
-    ESP_LOGW(TAG, "map_add body: need 6 fields after idx "
-                  "(encoder_left,encoder_right,derivative,average,speed,type)");
+  MapPoint point;
+  if(!parseMapAddBodyFields(view, &point)) {
+    ESP_LOGW(TAG, "map_add body: need 11 fields after idx "
+                  "(t,encoder_left,encoder_right,v,omega,x,y,theta,sector,"
+                  "right_marks,speed)");
     return false;
   }
   if(globalData.mapData.size() >= static_cast<size_t>(MAP_POINT_MAX_COUNT)) {
@@ -81,13 +68,6 @@ bool wireMapAddBody(const wire::WireView &view, CliProtocol &proto,
     }
     return false;
   }
-  MapPoint point;
-  point.encoderLeft              = encoderLeft;
-  point.encoderRight             = encoderRight;
-  point.encoderDerivative        = encoderDerivative;
-  point.encoderDerivativeAverage = encoderDerivativeAverage;
-  point.speed                    = speed;
-  point.pointType                = pointType;
   globalData.mapData.push_back(point);
   if(sortAfter) {
     std::sort(globalData.mapData.begin(), globalData.mapData.end(),
@@ -131,22 +111,30 @@ bool wireMapGet(CliProtocol &proto) {
   std::vector<std::string> bodies;
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    char leftBuf[16], rightBuf[16], derivBuf[16], avgBuf[16], speedBuf[16],
-        typeBuf[16];
+    char tBuf[16], leftBuf[16], rightBuf[16], vBuf[16], omegaBuf[16], xBuf[16],
+        yBuf[16], thetaBuf[16], sectorBuf[8], marksBuf[8], speedBuf[16];
+    snprintf(tBuf, sizeof(tBuf), "%lu", static_cast<unsigned long>(point.t));
     snprintf(leftBuf, sizeof(leftBuf), "%ld",
              static_cast<long>(point.encoderLeft));
     snprintf(rightBuf, sizeof(rightBuf), "%ld",
              static_cast<long>(point.encoderRight));
-    snprintf(derivBuf, sizeof(derivBuf), "%.3f",
-             static_cast<double>(point.encoderDerivative));
-    snprintf(avgBuf, sizeof(avgBuf), "%.3f",
-             static_cast<double>(point.encoderDerivativeAverage));
+    snprintf(vBuf, sizeof(vBuf), "%.1f", static_cast<double>(point.v));
+    snprintf(omegaBuf, sizeof(omegaBuf), "%.4f",
+             static_cast<double>(point.omega));
+    snprintf(xBuf, sizeof(xBuf), "%.1f", static_cast<double>(point.x));
+    snprintf(yBuf, sizeof(yBuf), "%.1f", static_cast<double>(point.y));
+    snprintf(thetaBuf, sizeof(thetaBuf), "%.4f",
+             static_cast<double>(point.theta));
+    snprintf(sectorBuf, sizeof(sectorBuf), "%u",
+             static_cast<unsigned>(point.sector));
+    snprintf(marksBuf, sizeof(marksBuf), "%u",
+             static_cast<unsigned>(point.rightMarks));
     snprintf(speedBuf, sizeof(speedBuf), "%.3f",
              static_cast<double>(point.speed));
-    snprintf(typeBuf, sizeof(typeBuf), "%d", static_cast<int>(point.pointType));
     std::string seg = proto.makeListBodySegment(
         "map_get", 's', static_cast<int>(i + 1),
-        {leftBuf, rightBuf, derivBuf, avgBuf, speedBuf, typeBuf});
+        {tBuf, leftBuf, rightBuf, vBuf, omegaBuf, xBuf, yBuf, thetaBuf,
+         sectorBuf, marksBuf, speedBuf});
     if(seg.empty()) {
       return false;
     }

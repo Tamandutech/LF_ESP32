@@ -3,28 +3,22 @@
 
 #include <stdint.h>
 
-/// Ponto do mapa. O índice é a posição no array (RAM) / o campo `index` no
-/// arquivo e na comunicação Bluetooth.
-/// `encoderLeft` / `encoderRight` são as contagens das rodas; `speed` é o PWM
-/// base do motor (equivalente ao antigo `baseMotorPWM`).
-/// `encoderDerivative` é a derivada de (right - left) no instante do ponto;
-/// `encoderDerivativeAverage` é a média móvel dessa derivada.
+/// Ponto do mapa, gravado pelo pipeline de mapeamento com o modelo cinemático
+/// do robô diferencial. O índice é a posição no array (RAM) / o campo `index`
+/// no arquivo e na comunicação Bluetooth.
 struct MapPoint {
-  int32_t encoderLeft{};
-  int32_t encoderRight{};
-  float   encoderDerivative{};
-  float   encoderDerivativeAverage{};
-  float   speed{};
-  enum PointType {
-    AUTO_MARK,         ///< Recorded by the robot while mapping.
-    MANUAL_MARK,       ///< Added by the user via CLI.
-    STOP_COMMAND_MARK, ///< Last point, saved when mapping is stopped.
-    UNKNOWN_MARK,      ///< Unknown mark type.
-    CURVE_START_MARK,  ///< Transition into a curve (derivative above average).
-    CURVE_END_MARK ///< Transition out of a curve (derivative below average).
-  } pointType{UNKNOWN_MARK};
+  uint32_t t{};            ///< Tempo desde a largada, em ms.
+  int32_t  encoderLeft{};  ///< Pulsos acumulados da roda esquerda (bruto).
+  int32_t  encoderRight{}; ///< Pulsos acumulados da roda direita (bruto).
+  float    v{};            ///< Velocidade linear pelos encoders, em mm/s.
+  float    omega{};        ///< Velocidade angular pela IMU, sem bias, em rad/s.
+  float    x{};            ///< Posição x, em mm.
+  float    y{};            ///< Posição y, em mm.
+  float    theta{};        ///< Orientação, em rad.
+  uint16_t sector{};       ///< Marcações esquerdas válidas já vistas.
+  uint8_t  rightMarks{};   ///< Marcações direitas válidas já vistas (0, 1, 2).
+  float    speed{};        ///< PWM base do ponto (%).
 };
-
 
 /// Progresso para frente: média das contagens dos encoders (pulsos).
 inline int32_t mapPointProgress(const MapPoint &point) {

@@ -2,10 +2,46 @@
 
 #include <cstdint>
 
+// Parâmetros do modelo cinemático (ver documento do pipeline de mapeamento).
+// A CONFERIR no robô antes do teste:
+// - WHEEL_RADIUS: raio das rodas (r_d = r_e), em mm.
+// - ENCODER_PULSES_PER_ROTATION: pulsos por volta da RODA (N_res), já
+//   considerando a redução e a contagem em quadratura.
+// - ROBOT_WIDTH: distância entre as rodas (L). Não entra no modelo, porque ω
+//   vem da IMU. O valor 4 não corresponde a milímetros.
 #define ROBOT_WIDTH                 (4)
 #define WHEEL_RADIUS                (11)
 #define WHEEL_CIRCUMFERENCE         (70)
 #define ENCODER_PULSES_PER_ROTATION (4095)
+
+// Período fixo T do laço de controle, em ms (granularidade do tick: 1 ms).
+// Ajustar pelo "ciclo max" informado via Bluetooth ao fim de cada volta: T
+// deve ficar logo acima do maior ciclo medido.
+#define CONTROL_LOOP_PERIOD_MS (1)
+
+// IMU LSM6DSR via I2C. A CONFERIR no esquemático: GPIOs de SDA e SCL.
+// O endereço (0x6A ou 0x6B, conforme o pino SA0) é detectado automaticamente.
+#define GPIO_IMU_SDA                 (-1)
+#define GPIO_IMU_SCL                 (-1)
+#define IMU_I2C_FREQ_HZ              (400000)
+// +1.0F se ω positivo corresponder a giro anti-horário visto de cima; -1.0F
+// se a IMU estiver montada invertida. A CONFERIR girando o robô à mão.
+#define IMU_GYRO_Z_SIGN              (1.0F)
+// Medição do bias do giroscópio na calibração (robô parado):
+// GYRO_BIAS_SAMPLES leituras, uma a cada GYRO_BIAS_SAMPLE_INTERVAL_MS.
+#define GYRO_BIAS_SAMPLES            (500)
+#define GYRO_BIAS_SAMPLE_INTERVAL_MS (2)
+
+// Marcações laterais. As posições abaixo são índices do vetor de leituras
+// laterais, na ordem de GPIO_MULTIPLEXER_SIDE_SENSORS_INDEX ({15, 14, 6, 7}).
+// A CONFERIR no robô qual lado é qual.
+#define SIDE_SENSORS_LEFT_POSITIONS  {0, 1}
+#define SIDE_SENSORS_RIGHT_POSITIONS {2, 3}
+// Leitura calibrada (0 a 1000, branco = valor baixo) abaixo da qual o sensor
+// está vendo a marcação.
+#define MARK_SENSOR_THRESHOLD        (500)
+// Pulsos mais curtos que isto são ignorados (ruído), em microssegundos.
+#define MARK_MIN_PULSE_US            (1000)
 
 #define MOTOR_MAPPING_PWM (10)
 #define VACUUM_BASE_PWM   (100)
