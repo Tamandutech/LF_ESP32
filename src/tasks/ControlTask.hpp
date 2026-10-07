@@ -75,8 +75,8 @@ private:
   bool                  properlyCalibrated_;
   bool                  alternateLedColorFlag_;
   TickType_t            lastIdleLedUpdate_;
-  TickType_t            lastMapSaveTick_;
-  TickType_t            lastDerivativeTick_;
+  int32_t               lastMapSaveProgress_;
+  int64_t               lastDerivativeTimeUs_;
   int32_t               lastDeltaEncoder_;
   float                 lastEncoderDerivative_;
   float                 lastEncoderDerivativeAverage_;

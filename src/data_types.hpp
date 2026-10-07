@@ -47,9 +47,9 @@ struct ParametersConfig {
   /// BLE: \c Mapping.mappingMotorPWM (clamped to \c MAX_MOTOR_PWM from
   /// env.hpp).
   int32_t mappingMotorPWM{};
-  /// Minimum interval between recorded map points, in milliseconds.
-  /// BLE: \c Mapping.mapPointSaveInterval.
-  int32_t mapPointSaveInterval{};
+  /// Minimum distance between recorded map points, in encoder pulses
+  /// (average of both wheels). BLE: \c Mapping.mapPointSavePulseInterval.
+  int32_t mapPointSavePulseInterval{};
   /// Sample window for the moving average of encoder-delta derivatives.
   /// BLE: \c Mapping.mapPointMovingAverageSize.
   int32_t mapPointMovingAverageSize{};

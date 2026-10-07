@@ -107,10 +107,10 @@ bool getParameterValue(const char *className, const char *parameterName,
                static_cast<long>(globalData.parametersConfig.mappingMotorPWM));
       return true;
     }
-    if(strcmp(parameterName, "mapPointSaveInterval") == 0) {
-      snprintf(
-          valueBuffer, bufferSize, "%ld",
-          static_cast<long>(globalData.parametersConfig.mapPointSaveInterval));
+    if(strcmp(parameterName, "mapPointSavePulseInterval") == 0) {
+      snprintf(valueBuffer, bufferSize, "%ld",
+               static_cast<long>(
+                   globalData.parametersConfig.mapPointSavePulseInterval));
       return true;
     }
     if(strcmp(parameterName, "mapPointMovingAverageSize") == 0) {
@@ -195,12 +195,12 @@ bool setParameterValue(const char *className, const char *parameterName,
       globalData.parametersConfig.mappingMotorPWM = static_cast<int32_t>(val);
       return true;
     }
-    if(strcmp(parameterName, "mapPointSaveInterval") == 0) {
+    if(strcmp(parameterName, "mapPointSavePulseInterval") == 0) {
       int val = atoi(actualValue);
       if(val < 1) {
         val = 1;
       }
-      globalData.parametersConfig.mapPointSaveInterval =
+      globalData.parametersConfig.mapPointSavePulseInterval =
           static_cast<int32_t>(val);
       return true;
     }
@@ -303,8 +303,8 @@ bool wireParamList(CliProtocol &proto) {
     rows.push_back({"Mapping.mappingMotorPWM", {}});
     strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
   }
-  if(getParameterValue("Mapping", "mapPointSaveInterval", v, sizeof(v))) {
-    rows.push_back({"Mapping.mapPointSaveInterval", {}});
+  if(getParameterValue("Mapping", "mapPointSavePulseInterval", v, sizeof(v))) {
+    rows.push_back({"Mapping.mapPointSavePulseInterval", {}});
     strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
   }
   if(getParameterValue("Mapping", "mapPointMovingAverageSize", v, sizeof(v))) {

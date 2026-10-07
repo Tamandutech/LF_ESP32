@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <string>
 #include <vector>
 
 #include "esp_err.h"
@@ -29,6 +28,28 @@ MapPoint::PointType pointTypeFromInt(int value) {
   case MapPoint::CURVE_END_MARK: return static_cast<MapPoint::PointType>(value);
   default: return MapPoint::UNKNOWN_MARK;
   }
+}
+
+/// One `map_get(b,s,idx,...)` segment. Floats are quoted, matching
+/// appendWireToken (a decimal is not a plain integer). Returns the length
+/// without the trailing NUL, or 0 if it does not fit.
+size_t formatMapGetBody(int index, char *buf, size_t cap) {
+  if(buf == nullptr || index < 0 ||
+     static_cast<size_t>(index) >= globalData.mapData.size()) {
+    return 0;
+  }
+  const MapPoint &point = globalData.mapData[static_cast<size_t>(index)];
+  const int       n     = snprintf(
+      buf, cap, "map_get(b,s,%d,%ld,%ld,\"%.3f\",\"%.3f\",\"%.3f\",%d);",
+      index + 1, static_cast<long>(point.encoderLeft),
+      static_cast<long>(point.encoderRight),
+      static_cast<double>(point.encoderDerivative),
+      static_cast<double>(point.encoderDerivativeAverage),
+      static_cast<double>(point.speed), static_cast<int>(point.pointType));
+  if(n < 0 || static_cast<size_t>(n) >= cap) {
+    return 0;
+  }
+  return static_cast<size_t>(n);
 }
 } // namespace
 
@@ -128,31 +149,15 @@ bool wireMapSave(CliProtocol &proto) {
 }
 
 bool wireMapGet(CliProtocol &proto) {
-  std::vector<std::string> bodies;
-  for(size_t i = 0; i < globalData.mapData.size(); i++) {
-    const MapPoint &point = globalData.mapData[i];
-    char leftBuf[16], rightBuf[16], derivBuf[16], avgBuf[16], speedBuf[16],
-        typeBuf[16];
-    snprintf(leftBuf, sizeof(leftBuf), "%ld",
-             static_cast<long>(point.encoderLeft));
-    snprintf(rightBuf, sizeof(rightBuf), "%ld",
-             static_cast<long>(point.encoderRight));
-    snprintf(derivBuf, sizeof(derivBuf), "%.3f",
-             static_cast<double>(point.encoderDerivative));
-    snprintf(avgBuf, sizeof(avgBuf), "%.3f",
-             static_cast<double>(point.encoderDerivativeAverage));
-    snprintf(speedBuf, sizeof(speedBuf), "%.3f",
-             static_cast<double>(point.speed));
-    snprintf(typeBuf, sizeof(typeBuf), "%d", static_cast<int>(point.pointType));
-    std::string seg = proto.makeListBodySegment(
-        "map_get", 's', static_cast<int>(i + 1),
-        {leftBuf, rightBuf, derivBuf, avgBuf, speedBuf, typeBuf});
-    if(seg.empty()) {
-      return false;
-    }
-    bodies.push_back(std::move(seg));
+  // Stream each BLE packet as it fills. Holding one std::string per point
+  // (and a second copy while packing) exhausts the heap once the map grows
+  // past roughly a hundred points; operator new then abort()s because
+  // exceptions are disabled.
+  const int total = static_cast<int>(globalData.mapData.size());
+  if(!proto.emitListStreaming("map_get", 's', total, formatMapGetBody)) {
+    ESP_LOGE(TAG, "map_get failed to pack %d points", total);
+    return false;
   }
-  proto.emitListResponse("map_get", bodies);
   return true;
 }
 
