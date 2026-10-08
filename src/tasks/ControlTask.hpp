@@ -8,14 +8,13 @@
 #include "data_types.hpp"
 #include "tasks/StateMachineTask.hpp"
 
-#include <DataTomeMvAvg.h>
-
 class MotorDriver;
 class VacuumDriver;
 class IRSensorDriver;
 class EncoderDriver;
 class PathController;
 class LedRgbDriver;
+class ImuDriver;
 
 /**
  * Loop crítico de controle (Core 1): não é Active Object com fila.
@@ -45,15 +44,15 @@ private:
   void tickRunning();
   void tickMapping();
   void updateIdleLeds();
-  void appendMapPoint(MapPoint::PointType pointType, float encoderDerivative,
-                      float encoderDerivativeAverage);
+  void calibrateGyroBias();
+  void updatePose();
+  void updateMarks();
+  void appendMapPoint();
   void maybeRecordMapPoint();
-  void resetMappingDerivative();
   void recordTransitionLed();
 
   int32_t  encoderAverage() const;
-  MapPoint currentMapPoint(MapPoint::PointType pointType, float encoderDerivative,
-                           float encoderDerivativeAverage) const;
+  MapPoint currentMapPoint() const;
 
   StateMachineTask *stateMachine_;
   TaskHandle_t      taskHandle_;
@@ -65,21 +64,37 @@ private:
   EncoderDriver  *encoderRight_;
   PathController *pathController_;
   LedRgbDriver   *ledRgbDriver_;
+  ImuDriver      *imuDriver_;
 
   uint16_t lineSensorValues_[12];
   uint16_t sideSensorValues_[4];
 
-  RobotState            lastState_;
-  uint32_t              mapPointIndex_;
-  int32_t               finishLinePulses_;
-  bool                  properlyCalibrated_;
-  bool                  alternateLedColorFlag_;
-  TickType_t            lastIdleLedUpdate_;
-  TickType_t            lastMapSaveTick_;
-  TickType_t            lastDerivativeTick_;
-  int32_t               lastDeltaEncoder_;
-  float                 lastEncoderDerivative_;
-  float                 lastEncoderDerivativeAverage_;
-  bool                  derivativeInitialized_;
-  DataTomeMvAvg<float> *encoderDerivativeAverage_;
+  RobotState lastState_;
+  uint32_t   mapPointIndex_;
+  int32_t    finishLinePulses_;
+  bool       properlyCalibrated_;
+  bool       alternateLedColorFlag_;
+  TickType_t lastIdleLedUpdate_;
+  TickType_t lastMapSaveTick_;
+  int64_t    maxCycleWorkUs_;
+
+  // Odometria (modelo cinemático): pose, últimas velocidades e referências do
+  // ciclo anterior.
+  float   poseX_;
+  float   poseY_;
+  float   poseTheta_;
+  float   lastV_;
+  float   lastOmega_;
+  float   gyroBias_;
+  int32_t lastEncoderLeft_;
+  int32_t lastEncoderRight_;
+  int64_t lastPoseUpdateUs_;
+  int64_t mappingStartUs_;
+
+  // Marcações por borda de descida. Índice 0 = esquerda, 1 = direita.
+  bool     markActive_[2];
+  bool     markOtherSideSeen_[2];
+  int64_t  markPulseStartUs_[2];
+  uint16_t sector_;
+  uint8_t  rightMarks_;
 };

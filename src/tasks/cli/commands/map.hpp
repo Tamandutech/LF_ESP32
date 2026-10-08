@@ -6,10 +6,7 @@
 
 namespace cli_map {
 
-bool parseMapAddBodyFields(const wire::WireView &view, int32_t *encoderLeft,
-                           int32_t *encoderRight, float *encoderDerivative,
-                           float *encoderDerivativeAverage, float *speed,
-                           MapPoint::PointType *pointType);
+bool parseMapAddBodyFields(const wire::WireView &view, MapPoint *point);
 
 bool wireMapAddBody(const wire::WireView &view, CliProtocol &proto,
                     bool sortAfter);
