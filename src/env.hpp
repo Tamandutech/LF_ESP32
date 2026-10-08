@@ -21,8 +21,8 @@
 
 // IMU LSM6DSR via I2C. A CONFERIR no esquemático: GPIOs de SDA e SCL.
 // O endereço (0x6A ou 0x6B, conforme o pino SA0) é detectado automaticamente.
-#define GPIO_IMU_SDA                 (-1)
-#define GPIO_IMU_SCL                 (-1)
+#define GPIO_IMU_SDA                 (35)
+#define GPIO_IMU_SCL                 (36)
 #define IMU_I2C_FREQ_HZ              (400000)
 // +1.0F se ω positivo corresponder a giro anti-horário visto de cima; -1.0F
 // se a IMU estiver montada invertida. A CONFERIR girando o robô à mão.
