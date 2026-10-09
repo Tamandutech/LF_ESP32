@@ -12,8 +12,9 @@
 
 #define MAX_MOTOR_PWM (66)
 
-/// Minimum time between recorded map points while mapping, in milliseconds.
-#define MAP_POINT_SAVE_INTERVAL       (250)
+/// Minimum encoder-pulse distance (average of both wheels) between recorded
+/// map points while mapping.
+#define MAP_POINT_SAVE_PULSE_INTERVAL (16384) // 2 full rotations
 /// Window size for the moving average of encoder-delta derivatives.
 #define MAP_POINT_MOVING_AVERAGE_SIZE (4)
 /// |current derivative - moving average| must exceed this to record a

@@ -79,9 +79,9 @@ Se a derivada atual for menor que a média móvel das derivadas (por uma margem 
 
 Salvar o ponto no mapa em memória RAM (ou seja, numa array de structs de pontos do tipo `MapPoint`).
 
-Um novo ponto deve ser salvo a cada `MAP_POINT_SAVE_INTERVAL` milissegundos, configurado pela CLI via comunicação bluetooth.
+Um novo ponto deve ser salvo a cada `MAP_POINT_SAVE_PULSE_INTERVAL` pulsos de encoder (média das duas rodas), configurado pela CLI via comunicação bluetooth.
 
-Ao parar o robô no modo de mapeamento, o robô também deve salvar o ponto onde parou no mapa independente do limite de tempo configurado.
+Ao parar o robô no modo de mapeamento, o robô também deve salvar o ponto onde parou no mapa independente do intervalo de pulsos configurado.
 
 ### 7. Salvar ponto no mapa em memória Flash somente com a confirmação do usuário via comunicação bluetooth
 

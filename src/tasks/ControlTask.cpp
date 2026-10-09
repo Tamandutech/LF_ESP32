@@ -9,6 +9,7 @@
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 #include "env.hpp"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "tasks/BluetoothTask.hpp"
 #include "tasks/controllers/PathController.hpp"
 
@@ -30,8 +31,9 @@ ControlTask::ControlTask(StateMachineTask *stateMachine)
       encoderRight_(nullptr), pathController_(nullptr), ledRgbDriver_(nullptr),
       lineSensorValues_{}, sideSensorValues_{}, lastState_(RobotState::IDLE),
       mapPointIndex_(0), finishLinePulses_(0), properlyCalibrated_(false),
-      alternateLedColorFlag_(false), lastIdleLedUpdate_(0), lastMapSaveTick_(0),
-      lastDerivativeTick_(0), lastDeltaEncoder_(0),
+      alternateLedColorFlag_(false), lastIdleLedUpdate_(0),
+      lastMapSaveProgress_(0),
+      lastDerivativeTimeUs_(0), lastDeltaEncoder_(0),
       lastEncoderDerivative_(0.0F), lastEncoderDerivativeAverage_(0.0F),
       derivativeInitialized_(false), encoderDerivativeAverage_(nullptr) {}
 
@@ -77,8 +79,9 @@ void ControlTask::initHardware() {
   if(globalData.parametersConfig.mappingMotorPWM == 0) {
     globalData.parametersConfig.mappingMotorPWM = MOTOR_MAPPING_PWM;
   }
-  if(globalData.parametersConfig.mapPointSaveInterval == 0) {
-    globalData.parametersConfig.mapPointSaveInterval = MAP_POINT_SAVE_INTERVAL;
+  if(globalData.parametersConfig.mapPointSavePulseInterval == 0) {
+    globalData.parametersConfig.mapPointSavePulseInterval =
+        MAP_POINT_SAVE_PULSE_INTERVAL;
   }
   if(globalData.parametersConfig.mapPointMovingAverageSize == 0) {
     globalData.parametersConfig.mapPointMovingAverageSize =
@@ -235,7 +238,7 @@ void ControlTask::onEnterMotionState(RobotState newState) {
   if(newState == RobotState::MAPPING) {
     globalData.mapData.clear();
     globalData.mapData.reserve(256);
-    lastMapSaveTick_ = xTaskGetTickCount();
+    lastMapSaveProgress_ = 0;
     resetMappingDerivative();
   } else if(newState == RobotState::RUNNING && !globalData.mapData.empty()) {
     finishLinePulses_ = mapPointProgress(globalData.mapData.back());
@@ -320,7 +323,7 @@ void ControlTask::resetMappingDerivative() {
   lastDeltaEncoder_             = 0;
   lastEncoderDerivative_        = 0.0F;
   lastEncoderDerivativeAverage_ = 0.0F;
-  lastDerivativeTick_           = xTaskGetTickCount();
+  lastDerivativeTimeUs_         = esp_timer_get_time();
   derivativeInitialized_        = false;
 
   size_t window = static_cast<size_t>(
@@ -348,86 +351,87 @@ void ControlTask::appendMapPoint(MapPoint::PointType pointType,
   if(globalData.mapData.size() >= static_cast<size_t>(MAP_POINT_MAX_COUNT)) {
     return;
   }
-  globalData.mapData.push_back(
-      currentMapPoint(pointType, encoderDerivative, encoderDerivativeAverage));
-  lastMapSaveTick_ = xTaskGetTickCount();
+  const MapPoint point =
+      currentMapPoint(pointType, encoderDerivative, encoderDerivativeAverage);
+  globalData.mapData.push_back(point);
+  lastMapSaveProgress_ = mapPointProgress(point);
 }
 
 void ControlTask::maybeRecordMapPoint() {
   const int32_t left = encoderLeft_ != nullptr ? encoderLeft_->getCount() : 0;
   const int32_t right =
       encoderRight_ != nullptr ? encoderRight_->getCount() : 0;
-  // const int32_t    deltaEncoder = right - left;
-  const TickType_t now = xTaskGetTickCount();
+  const int32_t deltaEncoder = right - left;
+  const int32_t progress     = (left + right) / 2;
+  const int64_t currentUs    = esp_timer_get_time();
 
-  // if(!derivativeInitialized_) {
-  //   lastDeltaEncoder_      = deltaEncoder;
-  //   lastDerivativeTick_    = now;
-  //   derivativeInitialized_ = true;
-  //   return;
-  // }
-
-  // if(now == lastDerivativeTick_) {
-  //   return;
-  // }
-
-  // const float deltaTimeMs =
-  //     static_cast<float>((now - lastDerivativeTick_) * portTICK_PERIOD_MS);
-  // if(deltaTimeMs <= 0.0F) {
-  //   lastDeltaEncoder_   = deltaEncoder;
-  //   lastDerivativeTick_ = now;
-  //   return;
-  // }
-
-  // const float encoderDerivative =
-  //     static_cast<float>(deltaEncoder - lastDeltaEncoder_) / deltaTimeMs;
-  // lastDeltaEncoder_   = deltaEncoder;
-  // lastDerivativeTick_ = now;
-
-  // if(encoderDerivativeAverage_ == nullptr) {
-  //   return;
-  // }
-
-  // const size_t sampleCount = encoderDerivativeAverage_->point_count();
-  // const float  average =
-  //     sampleCount > 0U ? encoderDerivativeAverage_->get() : 0.0F;
-  // lastEncoderDerivative_        = encoderDerivative;
-  // lastEncoderDerivativeAverage_ = average;
-
-  // if(sampleCount >= 2U) {
-  //   const float margin =
-  //   globalData.parametersConfig.mapPointDerivativeMargin; MapPoint::PointType
-  //   transitionType = MapPoint::UNKNOWN_MARK; if(encoderDerivative > (average
-  //   + margin)) {
-  //     transitionType = MapPoint::CURVE_START_MARK;
-  //   } else if(encoderDerivative < (average - margin)) {
-  //     transitionType = MapPoint::CURVE_END_MARK;
-  //   }
-
-  //   if(transitionType != MapPoint::UNKNOWN_MARK) {
-  //     int32_t intervalMs = globalData.parametersConfig.mapPointSaveInterval;
-  //     if(intervalMs < 1) {
-  //       intervalMs = 1;
-  //     }
-  //     if((now - lastMapSaveTick_) >=
-  //        pdMS_TO_TICKS(static_cast<uint32_t>(intervalMs))) {
-  //       appendMapPoint(transitionType, encoderDerivative, average);
-  //       recordTransitionLed();
-  //     }
-  //   }
-  // }
-
-  int32_t intervalMs = globalData.parametersConfig.mapPointSaveInterval;
-  if(intervalMs < 1) {
-    intervalMs = 1;
-  }
-  if((now - lastMapSaveTick_) >=
-     pdMS_TO_TICKS(static_cast<uint32_t>(intervalMs))) {
-    appendMapPoint(MapPoint::AUTO_MARK, 0.0F, 0.0F);
-    recordTransitionLed();
+  if(!derivativeInitialized_) {
+    lastDeltaEncoder_      = deltaEncoder;
+    lastDerivativeTimeUs_  = currentUs;
+    derivativeInitialized_ = true;
+    return;
   }
 
-  // encoderDerivativeAverage_->push(encoderDerivative);
+  if(currentUs == lastDerivativeTimeUs_) {
+    return;
+  }
+
+  const float deltaTimeMs =
+      static_cast<float>(currentUs - lastDerivativeTimeUs_) * 1.0e-3F;
+  if(deltaTimeMs <= 0.0F) {
+    lastDeltaEncoder_     = deltaEncoder;
+    lastDerivativeTimeUs_ = currentUs;
+    return;
+  }
+
+  const float encoderDerivative =
+      static_cast<float>(deltaEncoder - lastDeltaEncoder_) / deltaTimeMs;
+  lastDeltaEncoder_     = deltaEncoder;
+  lastDerivativeTimeUs_ = currentUs;
+
+  if(encoderDerivativeAverage_ == nullptr) {
+    return;
+  }
+
+  const size_t sampleCount = encoderDerivativeAverage_->point_count();
+  const float  average =
+      sampleCount > 0U ? encoderDerivativeAverage_->get() : 0.0F;
+  lastEncoderDerivative_        = encoderDerivative;
+  lastEncoderDerivativeAverage_ = average;
+
+  if(sampleCount >= 2U) {
+    const float margin = globalData.parametersConfig.mapPointDerivativeMargin;
+    MapPoint::PointType transitionType = MapPoint::UNKNOWN_MARK;
+    if(encoderDerivative > (average + margin)) {
+      transitionType = MapPoint::CURVE_START_MARK;
+    } else if(encoderDerivative < (average - margin)) {
+      transitionType = MapPoint::CURVE_END_MARK;
+    }
+
+    if(transitionType != MapPoint::UNKNOWN_MARK) {
+      int32_t intervalPulses =
+          globalData.parametersConfig.mapPointSavePulseInterval;
+      if(intervalPulses < 1) {
+        intervalPulses = 1;
+      }
+      if((progress - lastMapSaveProgress_) >= intervalPulses) {
+        appendMapPoint(transitionType, encoderDerivative, average);
+        recordTransitionLed();
+      }
+    }
+  }
+
+  // int32_t intervalPulses =
+  //     globalData.parametersConfig.mapPointSavePulseInterval;
+  // if(intervalPulses < 1) {
+  //   intervalPulses = 1;
+  // }
+  // if((progress - lastMapSaveProgress_) >= intervalPulses) {
+  //   appendMapPoint(MapPoint::AUTO_MARK, 0.0F, 0.0F);
+  //   recordTransitionLed();
+  // }
+
+  encoderDerivativeAverage_->push(encoderDerivative);
 }
 
 void ControlTask::tickStopped() {
@@ -514,6 +518,23 @@ void ControlTask::run() {
       }
       lastState_ = state;
     }
+
+    // For debugging
+    // irSensorDriver_->readCalibrated(lineSensorValues_, sideSensorValues_);
+    // ESP_LOGI(
+    //     TAG,
+    //     "lineSensorValues_: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
+    //     lineSensorValues_[0], lineSensorValues_[1], lineSensorValues_[2],
+    //     lineSensorValues_[3], lineSensorValues_[4], lineSensorValues_[5],
+    //     lineSensorValues_[6], lineSensorValues_[7], lineSensorValues_[8],
+    //     lineSensorValues_[9], lineSensorValues_[10], lineSensorValues_[11]);
+    // ESP_LOGI(TAG, "sideSensorValues_: %d, %d, %d, %d", sideSensorValues_[0],
+    //          sideSensorValues_[1], sideSensorValues_[2],
+    //          sideSensorValues_[3]);
+    // vTaskDelay(pdMS_TO_TICKS(250));
+    // ESP_LOGI(TAG, "Encoder left: %d, right: %d",
+    //          static_cast<int>(encoderLeft_->getCount()),
+    //          static_cast<int>(encoderRight_->getCount()));
 
     switch(state) {
     case RobotState::RUNNING: tickRunning(); break;

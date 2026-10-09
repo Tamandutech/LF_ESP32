@@ -947,6 +947,119 @@ public:
   }
 
   /**
+   * @brief Emite uma lista sem reter cada body em `std::string`.
+   *
+   * Duas passagens: a primeira só mede o tamanho de cada body (buffer de
+   * pilha) para saber `B`; a segunda formata e envia um pacote por vez.
+   * O critério de corte é o mesmo de @ref emitListFromBodySegments
+   * (header pessimista com `B == T`).
+   *
+   * @param cmdName Nome do comando.
+   * @param role `r` ou `s`.
+   * @param total Quantidade de linhas. Índices passados a `writeBody` são
+   *        0-based.
+   * @param writeBody `size_t(int index, char *buf, size_t cap)` grava um
+   *        segmento `nome(b,role,idx,...);` e devolve o comprimento (sem o
+   *        `NUL`), ou `0` se não couber.
+   * @return `false` se algum body não puder ser formatado ou empacotado.
+   */
+  template <typename WriteBody>
+  bool emitListStreaming(const char *cmdName, char role, int total,
+                         WriteBody writeBody) const {
+    if(total <= 0) {
+      flushListChunk(cmdName, role, {}, 0, 1, 0);
+      return true;
+    }
+
+    const int B_pess = std::max(1, total);
+    const int j_pess = std::max(0, total - 1);
+    char      body[MessageSize];
+
+    auto bodyLenAt = [&](int index, size_t &outLen) -> bool {
+      const size_t n = writeBody(index, body, sizeof(body));
+      if(n == 0 || n >= sizeof(body)) {
+        return false;
+      }
+      outLen = n;
+      return true;
+    };
+
+    int    chunks    = 0;
+    int    curCount  = 0;
+    size_t sumBodies = 0;
+    for(int i = 0; i < total; i++) {
+      size_t len = 0;
+      if(!bodyLenAt(i, len)) {
+        return false;
+      }
+      const int    nextC = curCount + 1;
+      const size_t hdrBytes =
+          listHeaderWireBytes(cmdName, role, total, nextC, B_pess, j_pess);
+      if(curCount > 0 && hdrBytes + sumBodies + len > kPackBudget) {
+        chunks++;
+        curCount  = 0;
+        sumBodies = 0;
+      }
+      curCount++;
+      sumBodies += len;
+    }
+    if(curCount > 0) {
+      chunks++;
+    }
+    const int B = std::max(1, chunks);
+
+    char   packed[MessageSize];
+    size_t packedLen = 0;
+    int    rowCount  = 0;
+    int    j         = 0;
+
+    auto flushPacked = [&]() -> bool {
+      char   msg[MessageSize];
+      size_t pos = 0;
+      if(!appendListHeader(msg, sizeof(msg), pos, cmdName, role, total,
+                           rowCount, B, j)) {
+        return false;
+      }
+      if(pos + packedLen >= sizeof(msg)) {
+        return false;
+      }
+      memcpy(msg + pos, packed, packedLen);
+      pos += packedLen;
+      msg[pos] = '\0';
+      push(msg);
+      return true;
+    };
+
+    for(int i = 0; i < total; i++) {
+      size_t len = 0;
+      if(!bodyLenAt(i, len)) {
+        return false;
+      }
+      const int    nextC = rowCount + 1;
+      const size_t hdrBytes =
+          listHeaderWireBytes(cmdName, role, total, nextC, B_pess, j_pess);
+      if(rowCount > 0 && hdrBytes + packedLen + len > kPackBudget) {
+        if(!flushPacked()) {
+          return false;
+        }
+        j++;
+        rowCount  = 0;
+        packedLen = 0;
+      }
+      if(packedLen + len >= sizeof(packed)) {
+        return false;
+      }
+      memcpy(packed + packedLen, body, len);
+      packedLen += len;
+      rowCount++;
+    }
+    if(rowCount > 0 && !flushPacked()) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * @brief Responde a um header de lista recebido (`h,r`).
    * @param reqHeader Comando header de requisição.
    * @param bodies Segmentos de resposta já formatados.
